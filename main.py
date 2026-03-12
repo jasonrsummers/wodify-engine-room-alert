@@ -1,22 +1,35 @@
-import requests
 import os
-import time
 import json
+import requests
 from datetime import datetime, date
-from twilio.rest import Client
 from bs4 import BeautifulSoup
+from twilio.rest import Client
 
-API_URL = os.getenv("WOD_API")
+# ---------- CONFIG ----------
+
+LOGIN_URL = "https://app-clientapp.wodify.com/WodifyClient/screenservices/WodifyClient_DataFetch_WB/LoginFlow/Login"
+WORKOUT_URL = "https://app-clientapp.wodify.com/WodifyClient/screenservices/WodifyClient_DataFetch_WB/WOD_Flow/GetAllWorkoutData"
+
+EMAIL = os.getenv("WODIFY_EMAIL")
+PASSWORD = os.getenv("WODIFY_PASSWORD")
+
+CUSTOMER_ID = os.getenv("WOD_CUSTOMER_ID")
+USER_ID = os.getenv("WOD_USER_ID")
+GLOBAL_USER_ID = os.getenv("WOD_GLOBAL_USER_ID")
+LOCATION_ID = os.getenv("WOD_LOCATION_ID")
+PROGRAM_ID = os.getenv("WOD_PROGRAM_ID")
+
+DEVICE_UUID = os.getenv("WOD_DEVICE_UUID")
 
 TWILIO_SID = os.getenv("TWILIO_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
-FROM_PHONE = os.getenv("TWILIO_FROM")
-TO_PHONE = os.getenv("YOUR_PHONE")
+TWILIO_FROM = os.getenv("TWILIO_FROM")
+YOUR_PHONE = os.getenv("YOUR_PHONE")
 
-BASE_BODY = json.loads(os.getenv("WOD_BODY"))
+STATE_FILE = "state.json"
 
-CHECK_INTERVAL = 180
 
+# ---------- SMS ----------
 
 def send_sms(message):
 
@@ -24,15 +37,17 @@ def send_sms(message):
 
     client.messages.create(
         body=message,
-        from_=FROM_PHONE,
-        to=TO_PHONE
+        from_=TWILIO_FROM,
+        to=YOUR_PHONE
     )
 
+
+# ---------- STATE ----------
 
 def load_state():
 
     try:
-        with open("state.json") as f:
+        with open(STATE_FILE) as f:
             return json.load(f)
     except:
         return {}
@@ -40,114 +55,114 @@ def load_state():
 
 def save_state(state):
 
-    with open("state.json", "w") as f:
+    with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
 
-def build_body():
+# ---------- LOGIN ----------
 
-    body = BASE_BODY.copy()
+def login(session):
+
+    payload = {
+        "screenData": {
+            "variables": {
+                "Email": EMAIL,
+                "Password": PASSWORD
+            }
+        }
+    }
+
+    r = session.post(LOGIN_URL, json=payload)
+
+    print("login status:", r.status_code)
+
+    if r.status_code != 200:
+        raise Exception("Login failed")
+
+    return r.json()
+
+
+# ---------- WORKOUT ----------
+
+def fetch_workout(session):
 
     today = date.today().isoformat()
+
     now = datetime.utcnow().isoformat() + "Z"
 
-    body["screenData"]["variables"]["In_Request"]["SelectedDate"] = today
-    body["screenData"]["variables"]["In_Request"]["DateTime"] = now
+    payload = {
+        "screenData": {
+            "variables": {
+                "In_Request": {
+                    "SelectedDate": today,
+                    "DateTime": now,
+                    "CustomerId": CUSTOMER_ID,
+                    "UserId": USER_ID,
+                    "GlobalUserId": GLOBAL_USER_ID,
+                    "ActiveLocationId": LOCATION_ID,
+                    "GymProgramId": PROGRAM_ID,
+                    "IsChangeDate": False
+                }
+            }
+        }
+    }
 
-    return body
+    r = session.post(WORKOUT_URL, json=payload)
+
+    print("workout status:", r.status_code)
+
+    data = r.json()
+
+    workout = data["data"]["Response"]["ResponseWOD"]["ResponseWorkout"]
+
+    name = workout["Name"]
+
+    html = workout["WorkoutComponents"]["List"][0]["Description"]
+
+    description = BeautifulSoup(html, "html.parser").get_text("\n")
+
+    return name, description
 
 
-def get_engine_room():
+# ---------- MAIN ----------
 
-    body = build_body()
+def main():
 
     session = requests.Session()
 
     session.headers.update({
-        "Content-Type": "application/json; charset=UTF-8",
+        "Content-Type": "application/json",
         "Accept": "application/json",
-        "outsystems-device-uuid": os.getenv("WOD_DEVICE_UUID"),
-        "x-csrftoken": os.getenv("WOD_CSRF"),
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 OutSystemsApp v.225.1.8",
-        "Accept-Language": "en-US,en;q=0.9"
+        "outsystems-device-uuid": DEVICE_UUID,
+        "User-Agent": "OutSystemsApp"
     })
 
-    session.cookies.update({
-        "nr1W_Theme_UI": os.getenv("WOD_COOKIE_NR1"),
-        "nr2W_Theme_UI": os.getenv("WOD_COOKIE_NR2"),
-        "osVisitor": os.getenv("WOD_VISITOR")
-    })
+    login(session)
 
-    r = session.post(API_URL, json=body)
+    name, description = fetch_workout(session)
 
-    print("status:", r.status_code)
-    print("response preview:", r.text[:300])
+    if "Engine Room" not in name:
+        print("Engine Room not found")
+        return
 
-    if r.status_code != 200:
-        print("API error:", r.status_code)
-        return None, None
+    state = load_state()
 
-    try:
-        data = r.json()
-    except Exception:
-        print("Invalid JSON response")
-        return None, None
+    today = str(date.today())
 
-    try:
+    if state.get("last_sent") == today:
+        print("Already sent today")
+        return
 
-        workout = data["data"]["Response"]["ResponseWOD"]["ResponseWorkout"]
+    message = "Engine Room workout:\n\n" + description
 
-        name = workout["Name"]
+    send_sms(message)
 
-        html = workout["WorkoutComponents"]["List"][0]["Description"]
+    state["last_sent"] = today
 
-        description = BeautifulSoup(html or "", "html.parser").get_text("\n")
+    save_state(state)
 
-        return name, description
-
-    except Exception as e:
-
-        print("Parsing error:", e)
-
-        return None, None
+    print("SMS sent")
 
 
-while True:
-
-    try:
-
-        name, description = get_engine_room()
-
-        if not name:
-            time.sleep(CHECK_INTERVAL)
-            continue
-
-        if "Engine Room" not in name:
-            time.sleep(CHECK_INTERVAL)
-            continue
-
-        state = load_state()
-
-        today = str(date.today())
-
-        if state.get("last_sent") != today:
-
-            message = "New Engine Room workout:\n\n" + description
-
-            send_sms(message)
-
-            state["last_sent"] = today
-
-            save_state(state)
-
-            print("SMS sent")
-
-        else:
-
-            print("Already sent today")
-
-    except Exception as e:
-
-        print("error:", e)
-
-    time.sleep(CHECK_INTERVAL)
+if __name__ == "__main__":
+    main()
