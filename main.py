@@ -75,12 +75,18 @@ def get_engine_room():
 
     r = requests.post(API_URL, headers=HEADERS, json=body)
     
+    r = requests.post(API_URL, headers=HEADERS, json=body)
+    
+    print("status:", r.status_code)
+    print("response preview:", r.text[:300])
+    
     if r.status_code != 200:
         print("API error:", r.status_code)
         return None, None
     
     try:
         data = r.json()
+    
     except Exception:
         print("Invalid JSON response:", r.text[:200])
         return None, None
