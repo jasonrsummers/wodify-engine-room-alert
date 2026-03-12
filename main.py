@@ -15,7 +15,8 @@ HEADERS = {
     "x-csrftoken": os.getenv("WOD_CSRF"),
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 OutSystemsApp",
     "Accept-Language": "en-US,en;q=0.9",
-    "Origin": "https://app-clientapp.wodify.com"
+    "Origin": "https://app-clientapp.wodify.com",
+    "Cookie": os.getenv("WOD_COOKIE")
 }
 
 BASE_BODY = json.loads(os.getenv("WOD_BODY"))
