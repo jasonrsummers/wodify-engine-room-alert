@@ -130,9 +130,15 @@ def main():
 
 import time
 
+import time
+
 if __name__ == "__main__":
 
+    print("Engine Room watcher started")
+
     while True:
+
+        print("checking for workout...")
 
         try:
             main()
