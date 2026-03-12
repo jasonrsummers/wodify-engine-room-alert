@@ -1,25 +1,15 @@
 import os
 import json
 import requests
-from datetime import datetime, date
+from datetime import date
 from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 from twilio.rest import Client
 
-# ---------- CONFIG ----------
-
-LOGIN_URL = "https://app-clientapp.wodify.com/WodifyClient/screenservices/WodifyClient_DataFetch_WB/LoginFlow/Login"
-WORKOUT_URL = "https://app-clientapp.wodify.com/WodifyClient/screenservices/WodifyClient_DataFetch_WB/WOD_Flow/GetAllWorkoutData"
+API_URL = "https://app-clientapp.wodify.com/WodifyClient/screenservices/WodifyClient_DataFetch_WB/WOD_Flow/GetAllWorkoutData"
 
 EMAIL = os.getenv("WODIFY_EMAIL")
 PASSWORD = os.getenv("WODIFY_PASSWORD")
-
-CUSTOMER_ID = os.getenv("WOD_CUSTOMER_ID")
-USER_ID = os.getenv("WOD_USER_ID")
-GLOBAL_USER_ID = os.getenv("WOD_GLOBAL_USER_ID")
-LOCATION_ID = os.getenv("WOD_LOCATION_ID")
-PROGRAM_ID = os.getenv("WOD_PROGRAM_ID")
-
-DEVICE_UUID = os.getenv("WOD_DEVICE_UUID")
 
 TWILIO_SID = os.getenv("TWILIO_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
@@ -28,8 +18,6 @@ YOUR_PHONE = os.getenv("YOUR_PHONE")
 
 STATE_FILE = "state.json"
 
-
-# ---------- SMS ----------
 
 def send_sms(message):
 
@@ -41,8 +29,6 @@ def send_sms(message):
         to=YOUR_PHONE
     )
 
-
-# ---------- STATE ----------
 
 def load_state():
 
@@ -59,57 +45,48 @@ def save_state(state):
         json.dump(state, f)
 
 
-# ---------- LOGIN ----------
+def get_session_cookies():
 
-def login(session):
+    with sync_playwright() as p:
 
-    payload = {
-        "screenData": {
-            "variables": {
-                "Email": EMAIL,
-                "Password": PASSWORD
-            }
-        }
-    }
+        browser = p.chromium.launch(headless=True)
 
-    r = session.post(LOGIN_URL, json=payload)
+        page = browser.new_page()
 
-    print("login status:", r.status_code)
+        page.goto("https://app.wodify.com")
 
-    if r.status_code != 200:
-        raise Exception("Login failed")
+        page.fill("input[type=email]", EMAIL)
+        page.fill("input[type=password]", PASSWORD)
 
-    return r.json()
+        page.click("button[type=submit]")
+
+        page.wait_for_timeout(5000)
+
+        cookies = page.context.cookies()
+
+        browser.close()
+
+        return cookies
 
 
-# ---------- WORKOUT ----------
+def fetch_workout(cookies):
 
-def fetch_workout(session):
+    session = requests.Session()
 
-    today = date.today().isoformat()
-
-    now = datetime.utcnow().isoformat() + "Z"
+    for c in cookies:
+        session.cookies.set(c["name"], c["value"])
 
     payload = {
         "screenData": {
             "variables": {
                 "In_Request": {
-                    "SelectedDate": today,
-                    "DateTime": now,
-                    "CustomerId": CUSTOMER_ID,
-                    "UserId": USER_ID,
-                    "GlobalUserId": GLOBAL_USER_ID,
-                    "ActiveLocationId": LOCATION_ID,
-                    "GymProgramId": PROGRAM_ID,
-                    "IsChangeDate": False
+                    "SelectedDate": date.today().isoformat()
                 }
             }
         }
     }
 
-    r = session.post(WORKOUT_URL, json=payload)
-
-    print("workout status:", r.status_code)
+    r = session.post(API_URL, json=payload)
 
     data = r.json()
 
@@ -124,22 +101,11 @@ def fetch_workout(session):
     return name, description
 
 
-# ---------- MAIN ----------
-
 def main():
 
-    session = requests.Session()
+    cookies = get_session_cookies()
 
-    session.headers.update({
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "outsystems-device-uuid": DEVICE_UUID,
-        "User-Agent": "OutSystemsApp"
-    })
-
-    login(session)
-
-    name, description = fetch_workout(session)
+    name, description = fetch_workout(cookies)
 
     if "Engine Room" not in name:
         print("Engine Room not found")
@@ -153,9 +119,7 @@ def main():
         print("Already sent today")
         return
 
-    message = "Engine Room workout:\n\n" + description
-
-    send_sms(message)
+    send_sms("Engine Room workout:\n\n" + description)
 
     state["last_sent"] = today
 
