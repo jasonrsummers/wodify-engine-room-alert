@@ -128,5 +128,17 @@ def main():
     print("SMS sent")
 
 
+import time
+
 if __name__ == "__main__":
-    main()
+
+    while True:
+
+        try:
+            main()
+        except Exception as e:
+            print("error:", e)
+
+        print("waiting 5 minutes...\n")
+
+        time.sleep(300)
