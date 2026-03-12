@@ -2,8 +2,9 @@ import requests
 import os
 import time
 import json
-from datetime import date
+from datetime import datetime, date
 from twilio.rest import Client
+from bs4 import BeautifulSoup
 
 API_URL = os.getenv("WOD_API")
 
@@ -14,22 +15,29 @@ HEADERS = {
     "x-csrftoken": os.getenv("WOD_CSRF")
 }
 
-BODY = json.loads(os.getenv("WOD_BODY"))
+BASE_BODY = json.loads(os.getenv("WOD_BODY"))
 
 TWILIO_SID = os.getenv("TWILIO_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
 FROM_PHONE = os.getenv("TWILIO_FROM")
 TO_PHONE = os.getenv("YOUR_PHONE")
 
-CHECK_INTERVAL = 1800  # every 30 minutes
+CHECK_INTERVAL = 1800
 
 
 def send_sms(message):
+
     client = Client(TWILIO_SID, TWILIO_TOKEN)
-    client.messages.create(body=message, from_=FROM_PHONE, to=TO_PHONE)
+
+    client.messages.create(
+        body=message,
+        from_=FROM_PHONE,
+        to=TO_PHONE
+    )
 
 
 def load_state():
+
     try:
         with open("state.json") as f:
             return json.load(f)
@@ -38,13 +46,30 @@ def load_state():
 
 
 def save_state(state):
-    with open("state.json", "w") as f:
-        json.dump(state, f)
+
+    with open("state.json","w") as f:
+        json.dump(state,f)
 
 
-def get_engine_room_workout():
+def build_body():
 
-    r = requests.post(API_URL, headers=HEADERS, json=BODY)
+    body = BASE_BODY
+
+    today = date.today().isoformat()
+
+    now = datetime.utcnow().isoformat() + "Z"
+
+    body["screenData"]["variables"]["In_Request"]["SelectedDate"] = today
+    body["screenData"]["variables"]["In_Request"]["DateTime"] = now
+
+    return body
+
+
+def get_engine_room():
+
+    body = build_body()
+
+    r = requests.post(API_URL, headers=HEADERS, json=body)
 
     data = r.json()
 
@@ -52,7 +77,9 @@ def get_engine_room_workout():
 
     name = workout["Name"]
 
-    description = workout["WorkoutComponents"]["List"][0]["Description"]
+    html = workout["WorkoutComponents"]["List"][0]["Description"]
+
+    description = BeautifulSoup(html, "html.parser").get_text("\n")
 
     return name, description
 
@@ -61,7 +88,7 @@ while True:
 
     try:
 
-        name, description = get_engine_room_workout()
+        name, description = get_engine_room()
 
         if "Engine Room" not in name:
             time.sleep(CHECK_INTERVAL)
@@ -80,6 +107,7 @@ while True:
             save_state(state)
 
     except Exception as e:
+
         print("error:", e)
 
     time.sleep(CHECK_INTERVAL)
