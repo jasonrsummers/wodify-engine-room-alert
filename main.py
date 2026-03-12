@@ -18,6 +18,7 @@ YOUR_PHONE = os.getenv("YOUR_PHONE")
 
 STATE_FILE = "state.json"
 
+print("script booting")
 
 def send_sms(message):
 
