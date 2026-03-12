@@ -8,9 +8,12 @@ from twilio.rest import Client
 API_URL = os.getenv("WOD_API")
 
 HEADERS = {
-    "authorization": os.getenv("WOD_AUTH"),
-    "cookie": os.getenv("WOD_COOKIE")
+    "cookie": os.getenv("WOD_COOKIE"),
+    "x-csrftoken": os.getenv("WOD_CSRF"),
+    "content-type": "application/json"
 }
+
+BODY = json.loads(os.getenv("WOD_BODY"))
 
 TWILIO_SID = os.getenv("TWILIO_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
@@ -19,6 +22,7 @@ FROM_PHONE = os.getenv("TWILIO_FROM")
 TO_PHONE = os.getenv("YOUR_PHONE")
 
 CHECK_INTERVAL = 300
+
 
 def send_sms(message):
 
@@ -30,47 +34,54 @@ def send_sms(message):
         to=TO_PHONE
     )
 
+
 def load_state():
 
     try:
         with open("state.json") as f:
             return json.load(f)
-
     except:
         return {}
+
 
 def save_state(state):
 
     with open("state.json","w") as f:
         json.dump(state,f)
 
-def get_engine_room():
 
-    r = requests.get(API_URL, headers=HEADERS)
+def get_workout():
+
+    r = requests.post(API_URL, headers=HEADERS, json=BODY)
 
     data = r.json()
 
-    for item in data:
+    workout = data["data"]["Response"]["ResponseWOD"]["ResponseWorkout"]
 
-        if "Engine Room" in item["className"]:
+    name = workout["Name"]
 
-            return item["description"]
+    desc = workout["WorkoutComponents"]["List"][0]["Description"]
 
-    return None
+    return name, desc
+
 
 while True:
 
     try:
 
-        workout = get_engine_room()
+        name, description = get_workout()
+
+        if "Engine Room" not in name:
+            time.sleep(CHECK_INTERVAL)
+            continue
 
         state = load_state()
 
         today = str(date.today())
 
-        if workout and state.get("last_sent") != today:
+        if state.get("last_sent") != today:
 
-            send_sms("New Engine Room workout:\n\n" + workout)
+            send_sms("New Engine Room workout:\n\n" + description)
 
             state["last_sent"] = today
 
