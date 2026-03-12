@@ -1,3 +1,5 @@
+print("SCRIPT STARTED")
+
 import os
 import json
 import requests
