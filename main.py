@@ -19,7 +19,6 @@ YOUR_PHONE = os.getenv("YOUR_PHONE")
 STATE_FILE = "state.json"
 
 print("script booting")
-send_sms("Test message from Railway")
 
 def send_sms(message):
 
@@ -137,6 +136,8 @@ import time
 if __name__ == "__main__":
 
     print("Engine Room watcher started")
+    send_sms("Test message from Railway")
+
 
     while True:
 
