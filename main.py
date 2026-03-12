@@ -22,7 +22,7 @@ TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
 FROM_PHONE = os.getenv("TWILIO_FROM")
 TO_PHONE = os.getenv("YOUR_PHONE")
 
-CHECK_INTERVAL = 1800
+CHECK_INTERVAL = 180
 
 
 def send_sms(message):
