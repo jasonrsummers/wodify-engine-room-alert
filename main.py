@@ -57,7 +57,7 @@ def build_body():
 
     today = date.today().isoformat()
 
-    now = datetime.utcnow().isoformat() + "Z"
+    now = datetime.now().isoformat() + "Z"
 
     body["screenData"]["variables"]["In_Request"]["SelectedDate"] = today
     body["screenData"]["variables"]["In_Request"]["DateTime"] = now
@@ -70,8 +70,16 @@ def get_engine_room():
     body = build_body()
 
     r = requests.post(API_URL, headers=HEADERS, json=body)
-
-    data = r.json()
+    
+    if r.status_code != 200:
+        print("API error:", r.status_code)
+        return None, None
+    
+    try:
+        data = r.json()
+    except Exception:
+        print("Invalid JSON response:", r.text[:200])
+        return None, None
 
     workout = data["data"]["Response"]["ResponseWOD"]["ResponseWorkout"]
 
@@ -89,6 +97,10 @@ while True:
     try:
 
         name, description = get_engine_room()
+        
+        if not name:
+            time.sleep(CHECK_INTERVAL)
+            continue
 
         if "Engine Room" not in name:
             time.sleep(CHECK_INTERVAL)
