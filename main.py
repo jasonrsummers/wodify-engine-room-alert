@@ -8,25 +8,12 @@ from bs4 import BeautifulSoup
 
 API_URL = os.getenv("WOD_API")
 
-HEADERS = {
-    "Content-Type": "application/json; charset=UTF-8",
-    "Accept": "application/json",
-    "outsystems-device-uuid": os.getenv("WOD_DEVICE_UUID"),
-    "x-csrftoken": os.getenv("WOD_CSRF"),
-    "Cookie": os.getenv("WOD_COOKIE"),
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 OutSystemsApp v.225.1.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Origin": "https://app-clientapp.wodify.com"
-}
-
-BASE_BODY = json.loads(os.getenv("WOD_BODY"))
-
 TWILIO_SID = os.getenv("TWILIO_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
 FROM_PHONE = os.getenv("TWILIO_FROM")
 TO_PHONE = os.getenv("YOUR_PHONE")
+
+BASE_BODY = json.loads(os.getenv("WOD_BODY"))
 
 CHECK_INTERVAL = 180
 
@@ -53,17 +40,16 @@ def load_state():
 
 def save_state(state):
 
-    with open("state.json","w") as f:
-        json.dump(state,f)
+    with open("state.json", "w") as f:
+        json.dump(state, f)
 
 
 def build_body():
 
-    body = BASE_BODY
+    body = BASE_BODY.copy()
 
     today = date.today().isoformat()
-
-    now = datetime.now().isoformat() + "Z"
+    now = datetime.utcnow().isoformat() + "Z"
 
     body["screenData"]["variables"]["In_Request"]["SelectedDate"] = today
     body["screenData"]["variables"]["In_Request"]["DateTime"] = now
@@ -75,33 +61,55 @@ def get_engine_room():
 
     body = build_body()
 
-    r = requests.post(API_URL, headers=HEADERS, json=body)
-    
-    r = requests.post(API_URL, headers=HEADERS, json=body)
-    
+    session = requests.Session()
+
+    session.headers.update({
+        "Content-Type": "application/json; charset=UTF-8",
+        "Accept": "application/json",
+        "outsystems-device-uuid": os.getenv("WOD_DEVICE_UUID"),
+        "x-csrftoken": os.getenv("WOD_CSRF"),
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 OutSystemsApp v.225.1.8",
+        "Accept-Language": "en-US,en;q=0.9"
+    })
+
+    session.cookies.update({
+        "nr1W_Theme_UI": os.getenv("WOD_COOKIE_NR1"),
+        "nr2W_Theme_UI": os.getenv("WOD_COOKIE_NR2"),
+        "osVisitor": os.getenv("WOD_VISITOR")
+    })
+
+    r = session.post(API_URL, json=body)
+
     print("status:", r.status_code)
     print("response preview:", r.text[:300])
-    
+
     if r.status_code != 200:
         print("API error:", r.status_code)
         return None, None
-    
+
     try:
         data = r.json()
-    
     except Exception:
-        print("Invalid JSON response:", r.text[:200])
+        print("Invalid JSON response")
         return None, None
 
-    workout = data["data"]["Response"]["ResponseWOD"]["ResponseWorkout"]
+    try:
 
-    name = workout["Name"]
+        workout = data["data"]["Response"]["ResponseWOD"]["ResponseWorkout"]
 
-    html = workout["WorkoutComponents"]["List"][0]["Description"]
+        name = workout["Name"]
 
-    description = BeautifulSoup(html, "html.parser").get_text("\n")
+        html = workout["WorkoutComponents"]["List"][0]["Description"]
 
-    return name, description
+        description = BeautifulSoup(html or "", "html.parser").get_text("\n")
+
+        return name, description
+
+    except Exception as e:
+
+        print("Parsing error:", e)
+
+        return None, None
 
 
 while True:
@@ -109,7 +117,7 @@ while True:
     try:
 
         name, description = get_engine_room()
-        
+
         if not name:
             time.sleep(CHECK_INTERVAL)
             continue
@@ -124,11 +132,19 @@ while True:
 
         if state.get("last_sent") != today:
 
-            send_sms("New Engine Room workout:\n\n" + description)
+            message = "New Engine Room workout:\n\n" + description
+
+            send_sms(message)
 
             state["last_sent"] = today
 
             save_state(state)
+
+            print("SMS sent")
+
+        else:
+
+            print("Already sent today")
 
     except Exception as e:
 
